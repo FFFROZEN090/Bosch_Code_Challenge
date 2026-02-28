@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "me-assistant"
+version = "0.1.0"
+description = "ME Engineering Assistant - Multi-source RAG agent for ECU specifications"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=0.3.0,<0.4",
+    "langchain-community>=0.3.0,<0.4",
+    "langchain-ollama>=0.3.0,<0.4",
+    "langchain-huggingface>=0.1.0,<0.2",
+    "langgraph>=0.2.0,<0.4",
+    "mlflow>=2.17.0,<3",
+    "faiss-cpu>=1.9.0,<2",
+    "sentence-transformers>=3.0.0,<4",
+    "pandas>=2.0.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pylint>=3.0.0,<4",
+    "pytest>=8.0.0,<9",
+    "pytest-cov>=5.0.0,<6",
+]
+openai = [
+    "langchain-openai>=0.3.0,<0.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pylint.main]
+source-roots = ["src"]
+
+[tool.pylint."messages control"]
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "too-few-public-methods",
+    "import-error",
+]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

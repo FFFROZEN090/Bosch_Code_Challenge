@@ -168,6 +168,94 @@ me-engineering-assistant/
 
 ---
 
+### Stage 1.5: LLM & Embedding 环境部署（Stage 2 的前置依赖）
+
+Stage 2 的 `synthesize_node` 和最终验证都需要 LLM 运行。本步骤确保所有模型服务就绪。
+
+**1.5a. Ollama 安装与启动（本地开发环境）**
+
+```bash
+# macOS
+brew install ollama
+
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 启动 Ollama 服务（后台守护进程）
+ollama serve
+```
+
+**1.5b. 拉取 LLM 模型**
+
+```bash
+# 主选模型（~4.1GB，首次需要几分钟下载）
+ollama pull mistral:7b
+
+# 备选：如果 Mistral 回答质量不够或机器内存不足
+ollama pull qwen2.5:7b      # 备选 A：中文+英文都强
+ollama pull phi3:mini        # 备选 B：轻量（2.3GB），适合低配机器
+```
+
+**1.5c. 验证 Ollama 服务可用**
+
+```bash
+# 检查服务是否在运行
+curl http://localhost:11434
+
+# 检查模型是否已下载
+ollama list
+
+# 快速测试 LLM 能否响应
+curl http://localhost:11434/api/generate -d '{
+  "model": "mistral:7b",
+  "prompt": "What is 2+2?",
+  "stream": false
+}'
+```
+
+**1.5d. Embedding 模型（自动处理）**
+
+`sentence-transformers/all-MiniLM-L6-v2` 会在 Stage 1d 首次调用 `HuggingFaceEmbeddings()` 时自动从 HuggingFace 下载到本地缓存（~80MB）。无需手动操作，但**首次运行需要网络连接**。
+
+如需离线使用，可预先下载：
+```bash
+python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+```
+
+**1.5e. 代码中的连接配置** (`config.py`)
+
+```python
+# LLM 配置 — 后续 Stage 2 synthesize_node 和 Stage 4 Docker 都依赖这里
+LLM_PROVIDER = "ollama"                          # "ollama" | "openai"
+OLLAMA_BASE_URL = "http://localhost:11434"        # 本地开发
+OLLAMA_MODEL = "mistral:7b"                       # Docker 中会切为 http://ollama:11434
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
+# LangChain 初始化示例（供后续 Stage 引用）
+# from langchain_ollama import ChatOllama
+# llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL)
+```
+
+**1.5f. 硬件需求与故障排查**
+
+| 场景 | 最低配置 | 建议配置 |
+|------|---------|---------|
+| Mistral 7B | 8GB RAM | 16GB RAM |
+| Phi3 Mini | 4GB RAM | 8GB RAM |
+| Embedding (MiniLM) | 512MB RAM | 同上 |
+
+常见问题：
+- **`ollama serve` 报端口占用**：`lsof -i :11434` 查看冲突进程，或 `OLLAMA_HOST=0.0.0.0:11435 ollama serve` 换端口
+- **模型推理超慢（>30s）**：换轻量模型 `phi3:mini`，或检查是否在用 swap 内存
+- **GPU 加速**（可选）：如有 Apple Silicon / NVIDIA GPU，Ollama 会自动检测并使用，无需额外配置
+
+**验收标准：**
+- `ollama list` 显示 `mistral:7b`（或所选模型）
+- `curl http://localhost:11434/api/generate` 在 5s 内返回响应
+- `python -c "from langchain_ollama import ChatOllama; print('OK')"` 无报错
+
+---
+
 ### Stage 2: Router + LangGraph Agent
 **Files:** `agent/state.py`, `agent/router.py`, `agent/prompts.py`, `agent/nodes.py`, `agent/graph.py`
 
@@ -537,28 +625,30 @@ For each phase, include:
 ## Execution Order (Priority-Driven)
 
 ```
-Stage 1 (Ingest + VectorStore)    ~1.5 hrs
+Stage 1   (Ingest + VectorStore)    ~1.5 hrs
   ↓
-Stage 2 (Router + LangGraph)      ~2 hrs       ← CHECKPOINT: run 10 questions, must get 8/10
+Stage 1.5 (LLM & Embedding 部署)    ~0.5 hrs   ← 安装 Ollama + 拉模型 + 验证
   ↓
-Stage 3 (MLflow packaging)        ~1 hr
+Stage 2   (Router + LangGraph)      ~2 hrs      ← CHECKPOINT: run 10 questions, must get 8/10
   ↓
-Stage 5 (Eval + Tests)            ~1 hr        ← formal validation with MLflow
+Stage 3   (MLflow packaging)        ~1 hr
   ↓
-Stage 4 (Docker + REST)           ~1.5 hrs
+Stage 5   (Eval + Tests)            ~1 hr       ← formal validation with MLflow
   ↓
-Stage 7 (MLflow Eval Framework)   ~1 hr        ← Bonus 1
+Stage 4   (Docker + REST)           ~1.5 hrs
   ↓
-Stage 9 (Advanced Agent)          ~1.5 hrs     ← Bonus 4 (multi-step + tools)
+Stage 7   (MLflow Eval Framework)   ~1 hr       ← Bonus 1
   ↓
-Stage 8 (HITL)                    ~1 hr        ← Bonus 2
+Stage 9   (Advanced Agent)          ~1.5 hrs    ← Bonus 4 (multi-step + tools)
   ↓
-Stage 10 (Scalability writeup)    ~0.5 hr      ← Bonus 3 (README section)
+Stage 8   (HITL)                    ~1 hr       ← Bonus 2
   ↓
-Stage 6 (README finalization)     ~1 hr
+Stage 10  (Scalability writeup)     ~0.5 hr     ← Bonus 3 (README section)
+  ↓
+Stage 6   (README finalization)     ~1 hr
 ```
 
-**Total: ~12 hours**
+**Total: ~12.5 hours**
 
 **Critical checkpoints:**
 1. After Stage 2: Run all 10 test questions through graph. Must get >=8/10. Do NOT proceed until answers are correct. Debug router patterns and prompts here.
