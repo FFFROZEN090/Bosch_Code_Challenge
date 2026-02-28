@@ -11,7 +11,7 @@ from langchain_community.vectorstores import FAISS
 
 from me_assistant.config import EMBEDDING_MODEL
 from me_assistant.ingest.loader import load_document
-from me_assistant.ingest.splitter import split_document, create_full_doc_chunk
+from me_assistant.ingest.splitter import create_full_doc_chunk
 from me_assistant.agent.graph import build_graph
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,11 @@ class MEAssistantModel(mlflow.pyfunc.PythonModel):
     The model loads the FAISS index and raw docs at startup, builds
     the LangGraph, and runs it for each incoming question.
     """
+
+    def __init__(self):
+        self.index = None
+        self.full_doc_chunks = None
+        self.graph = None
 
     def load_context(self, context):
         """Load FAISS index and documents from MLflow artifacts, build graph."""
@@ -55,7 +60,7 @@ class MEAssistantModel(mlflow.pyfunc.PythonModel):
         self.graph = build_graph(self.index, self.full_doc_chunks)
         logger.info("MEAssistantModel loaded successfully.")
 
-    def predict(self, context, model_input, params=None):
+    def predict(self, context, model_input, params=None):  # pylint: disable=unused-argument
         """Run the agent pipeline for each question.
 
         Args:

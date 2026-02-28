@@ -80,7 +80,7 @@ def make_retrieve_compare_node(full_doc_chunks: list[Document]):
 
     Injects all documents as context (docs are small enough).
     """
-    def retrieve_compare_node(state: dict) -> dict:
+    def retrieve_compare_node(state: dict) -> dict:  # pylint: disable=unused-argument
         context = retrieve_all_docs(full_doc_chunks)
         sources = [
             {
