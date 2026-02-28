@@ -1,7 +1,10 @@
 """LangGraph node functions for the agent pipeline.
 
 Each node takes AgentState as input and returns a partial state update dict.
-Nodes: classify → retrieve → validate_confidence → synthesize
+Nodes: classify → retrieve → check_evidence → validate_confidence → synthesize
+
+The check_evidence node enables multi-step retrieval: if retrieved evidence
+is insufficient, the query is rewritten and retrieval retried (max 2 attempts).
 """
 
 import json
@@ -49,18 +52,22 @@ def make_retrieve_single_node(index: FAISS):
     Uses closure to inject the FAISS index dependency.
     """
     def retrieve_single_node(state: dict) -> dict:
-        question = state["question"]
+        # Use rewritten query if available (from multi-step retrieval)
+        query = state.get("search_query") or state["question"]
         route = state["route"]
         matched_models = state.get("matched_models", [])
+
+        attempt = state.get("retrieval_attempts", 1)
+        logger.info("Retrieval attempt %d with query: %s", attempt, query[:80])
 
         # If a specific model was matched, filter by model; otherwise by series
         if matched_models:
             model = matched_models[0]
-            docs = retrieve_by_model(index, question, model)
+            docs = retrieve_by_model(index, query, model)
             logger.info("Retrieved %d chunks for model=%s", len(docs), model)
         else:
             series = route.split("_")[1]  # "ECU_700" -> "700"
-            docs = retrieve_by_series(index, question, series)
+            docs = retrieve_by_series(index, query, series)
             logger.info("Retrieved %d chunks for series=%s", len(docs), series)
 
         context = "\n\n".join(doc.page_content for doc in docs)
@@ -163,6 +170,100 @@ def validate_confidence_node(state: dict) -> dict:
     return {
         "needs_human_review": False,
         "review_reason": "",
+    }
+
+
+def check_evidence_node(state: dict) -> dict:
+    """Check if retrieved evidence is sufficient for answering the query.
+
+    For COMPARE/UNKNOWN routes, evidence is always sufficient because
+    all documents are injected as context.
+
+    For single-source routes (ECU_700/ECU_800), evidence is insufficient when:
+    - Context is empty (retrieval returned nothing)
+    - Context is very short (< 50 chars, likely a fragment)
+
+    When insufficient, the graph loops back through rewrite_query for
+    a second retrieval attempt (max 2 total).
+    """
+    route = state.get("route", "")
+    context = state.get("context", "")
+    retrieval_attempts = state.get("retrieval_attempts", 1)
+
+    # COMPARE/UNKNOWN: all docs injected, always sufficient
+    if route in ("COMPARE", "UNKNOWN"):
+        logger.info("Evidence check: COMPARE route, always sufficient")
+        return {"evidence_sufficient": True, "evidence_gap": ""}
+
+    # Max attempts reached — proceed with whatever we have
+    if retrieval_attempts >= 2:
+        logger.info(
+            "Evidence check: max attempts reached (%d), proceeding",
+            retrieval_attempts,
+        )
+        return {"evidence_sufficient": True, "evidence_gap": ""}
+
+    # Check for empty or very short context
+    if not context.strip():
+        logger.info("Evidence check: empty context, will retry")
+        return {
+            "evidence_sufficient": False,
+            "evidence_gap": "no context retrieved",
+        }
+
+    if len(context) < 50:
+        logger.info(
+            "Evidence check: context too short (%d chars), will retry",
+            len(context),
+        )
+        return {
+            "evidence_sufficient": False,
+            "evidence_gap": f"context too short ({len(context)} chars)",
+        }
+
+    logger.info(
+        "Evidence check: sufficient (%d chars, attempt %d)",
+        len(context), retrieval_attempts,
+    )
+    return {"evidence_sufficient": True, "evidence_gap": ""}
+
+
+def rewrite_query_node(state: dict) -> dict:
+    """Rewrite the search query for improved retrieval on retry.
+
+    Expands the original question with model-specific context and
+    technical keywords to improve FAISS similarity matching.
+    """
+    question = state["question"]
+    matched_models = state.get("matched_models", [])
+    evidence_gap = state.get("evidence_gap", "")
+    attempt = state.get("retrieval_attempts", 1)
+
+    parts = [question]
+
+    # Add model-specific context to improve embedding similarity
+    if matched_models:
+        model = matched_models[0]
+        parts.append(f"{model} specifications technical data")
+        if "750" in model:
+            parts.append("ECU-700 series automotive controller")
+        elif "850" in model:
+            parts.append("ECU-800 series automotive controller")
+
+    # Add generic technical terms to broaden retrieval
+    parts.append("features parameters performance specifications")
+
+    rewritten = " ".join(parts)
+    new_attempt = attempt + 1
+
+    logger.info(
+        "Query rewrite (attempt %d→%d, gap=%s): '%s' → '%s'",
+        attempt, new_attempt, evidence_gap, question[:50], rewritten[:80],
+    )
+
+    return {
+        "search_query": rewritten,
+        "retrieval_attempts": new_attempt,
     }
 
 

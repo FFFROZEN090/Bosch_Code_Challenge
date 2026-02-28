@@ -18,6 +18,10 @@ class AgentState(TypedDict):
         latency_ms:         Total processing time in milliseconds.
         needs_human_review: Whether the query requires human review before synthesis.
         review_reason:      Why human review is needed (empty if not needed).
+        search_query:       Rewritten query for retrieval (defaults to question).
+        retrieval_attempts: Number of retrieval attempts (max 2 before forcing synthesis).
+        evidence_sufficient: Whether retrieved evidence is sufficient.
+        evidence_gap:       Description of what's missing from the evidence.
     """
     question: str
     route: str
@@ -30,3 +34,7 @@ class AgentState(TypedDict):
     latency_ms: float
     needs_human_review: bool
     review_reason: str
+    search_query: str
+    retrieval_attempts: int
+    evidence_sufficient: bool
+    evidence_gap: str
