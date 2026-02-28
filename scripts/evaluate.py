@@ -31,6 +31,7 @@ def _print_results(results):
     print(f"  Routing accuracy:  {overall['routing_accuracy']:.0%}")
     print(f"  Source accuracy:   {overall['source_accuracy']:.0%}")
     print(f"  Avg latency:       {overall['avg_latency_ms']:.0f}ms")
+    print(f"  P95 latency:       {overall['p95_latency_ms']:.0f}ms")
     print(f"  Max latency:       {overall['max_latency_ms']:.0f}ms")
     print("=" * 60)
 

@@ -25,6 +25,7 @@ from me_assistant.eval.metrics import (
     check_routing_correctness,
     check_source_correctness,
     compute_overall_scores,
+    make_mlflow_metrics,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,12 +114,13 @@ def run_evaluation() -> dict:
 
 
 def run_mlflow_evaluation() -> dict:
-    """Run evaluation with full MLflow tracking.
+    """Run evaluation with full MLflow tracking and mlflow.evaluate().
 
-    Logs to MLflow:
-    - Parameters: model config, evaluation settings
-    - Metrics: accuracy, routing_accuracy, source_accuracy, latency stats
-    - Artifacts: per-question results CSV, summary JSON
+    Pipeline:
+    1. Run predictions through the agent graph
+    2. Build custom MLflow metrics (answer_accuracy, routing, source, latency)
+    3. Call mlflow.evaluate() with predictions and custom metrics
+    4. Log additional artifacts (per-question CSV, summary JSON)
 
     Returns:
         Dict with per_question results, overall scores, and mlflow run_id.
@@ -137,27 +139,39 @@ def run_mlflow_evaluation() -> dict:
             "evaluation_type": "keyword_matching",
         })
 
-        # Run all questions
+        # Run all questions through the graph
         per_question = _run_questions(graph, questions)
         overall = compute_overall_scores(per_question)
 
-        # Log aggregate metrics
-        mlflow.log_metrics({
-            "accuracy": overall["accuracy"],
-            "pass_count": overall["pass_count"],
-            "total_questions": overall["total"],
-            "routing_accuracy": overall["routing_accuracy"],
-            "source_accuracy": overall["source_accuracy"],
-            "avg_latency_ms": overall["avg_latency_ms"],
-            "max_latency_ms": overall["max_latency_ms"],
+        # Build eval DataFrame with predictions for mlflow.evaluate()
+        eval_df = pd.DataFrame({
+            "question": [r["question"] for r in per_question],
+            "expected_answer": [r["expected_answer"] for r in per_question],
+            "answer": [r["answer"] for r in per_question],
         })
 
-        # Log per-question latency as individual metrics
-        for r in per_question:
-            mlflow.log_metric(
-                f"latency_q{r['question_id']}",
-                r["latency_ms"],
-            )
+        # Create custom MLflow metrics from results
+        custom_metrics = make_mlflow_metrics(per_question)
+
+        # Run mlflow.evaluate() with custom metrics
+        eval_result = mlflow.evaluate(
+            data=eval_df,
+            predictions="answer",
+            targets="expected_answer",
+            extra_metrics=custom_metrics,
+        )
+        logger.info("mlflow.evaluate() metrics: %s", eval_result.metrics)
+
+        # Log our aggregate metrics (supplements mlflow.evaluate output)
+        mlflow.log_metrics({
+            "overall_accuracy": overall["accuracy"],
+            "overall_pass_count": overall["pass_count"],
+            "overall_routing_accuracy": overall["routing_accuracy"],
+            "overall_source_accuracy": overall["source_accuracy"],
+            "overall_avg_latency_ms": overall["avg_latency_ms"],
+            "overall_p95_latency_ms": overall["p95_latency_ms"],
+            "overall_max_latency_ms": overall["max_latency_ms"],
+        })
 
         # Save per-question results as CSV artifact
         results_df = pd.DataFrame(per_question)
