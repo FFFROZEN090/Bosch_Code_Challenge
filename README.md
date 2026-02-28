@@ -173,10 +173,143 @@ curl -X POST http://localhost:5001/invocations \
 - **No conversation memory**: Each query is independent — no multi-turn dialogue support.
 - **Keyword-based evaluation**: Answer accuracy is checked via keyword matching, not semantic similarity.
 
-## Future Work / Scalability
+## Scalability Strategy
 
-| Phase | Scope | Key Changes |
-|-------|-------|-------------|
-| Phase 1: Data Scale | 100s of documents | Persistent vector DB (Qdrant/Milvus), incremental indexing, metadata sharding per product line |
-| Phase 2: Concurrency | 10+ concurrent users | Embedding cache (Redis), LLM request queue, horizontal scaling, response caching |
-| Phase 3: Enterprise | Multi-team, multi-product | Per-product vector store shards, RBAC, model complexity routing, observability (OpenTelemetry), A/B testing |
+### Overview
+
+The current system is a single-node PoC optimized for 3 small documents and batch queries. Below is a phased roadmap for scaling to enterprise production, addressing data volume, concurrency, and organizational growth.
+
+### Phase 0: Current State (Single-Node PoC)
+
+| Aspect | Current Implementation |
+|--------|----------------------|
+| **Documents** | 3 markdown files (~4KB total) |
+| **Vector store** | In-memory FAISS, rebuilt on startup |
+| **LLM** | Single Ollama instance, synchronous calls |
+| **Serving** | MLflow `models serve`, single worker |
+| **Latency** | ~12-18s per query (LLM-dominated) |
+| **Throughput** | ~3-4 queries/minute (sequential) |
+
+### Phase 1: Data Scale (100s of Documents)
+
+**Goal:** Support 100-500 ECU documents across multiple product lines without redeployment when new docs arrive.
+
+**Changes:**
+
+| Component | Current → New | Files Affected |
+|-----------|--------------|----------------|
+| Vector store | FAISS (in-memory) → **Qdrant** (persistent, filtered search) | `config.py`, `ingest/indexer.py`, `retrieval/retriever.py` |
+| Indexing | Full rebuild on startup → **Incremental indexing pipeline** with document hashing | `ingest/indexer.py`, new `ingest/watcher.py` |
+| Chunking | Header-based splitting → **Adaptive chunking** with table-aware parsing, OCR for scanned PDFs | `ingest/splitter.py`, `ingest/loader.py` |
+| Metadata | Simple series/model tags → **Hierarchical taxonomy** (product line → series → model → revision) | `config.py`, `ingest/loader.py` |
+| Router | Static regex patterns → **Configurable pattern registry** loaded from YAML, auto-discovery of new model names from ingested docs | `agent/router.py`, new `config/routes.yaml` |
+
+**Technology choices:**
+- **Qdrant** over Milvus/Pinecone: self-hosted, native metadata filtering, gRPC API, built-in sharding. Runs as a Docker sidecar alongside Ollama.
+- **Document hashing** (SHA-256 of content): skip re-indexing unchanged docs, detect modified docs for re-embedding.
+
+**Key metrics:**
+- Index build time for N documents (target: <5 min for 500 docs)
+- Retrieval latency with filtered search (target: <500ms p95)
+- Storage footprint per document (track embedding + metadata overhead)
+
+**Estimated effort:** 2-3 weeks
+
+### Phase 2: Concurrency (10+ Concurrent Users)
+
+**Goal:** Handle 10-50 concurrent users with sub-5s response times for cached/repeated queries.
+
+**Changes:**
+
+| Component | Current → New | Files Affected |
+|-----------|--------------|----------------|
+| Serving | MLflow single-worker → **FastAPI with async handlers** + Uvicorn workers | New `api/server.py`, `api/routes.py` |
+| LLM calls | Synchronous urllib → **Async httpx** with connection pooling, retry logic | `agent/nodes.py` |
+| Caching | None → **Redis** for embedding cache + response cache (TTL-based) | New `cache/redis_client.py`, `retrieval/retriever.py` |
+| Load balancing | Single Ollama → **Multiple Ollama replicas** behind nginx or Kubernetes service | `docker-compose.yml`, new `nginx.conf` |
+| Queue | None → **Celery/RQ task queue** for LLM requests to prevent overload | New `worker/tasks.py` |
+
+**Architecture:**
+```
+                    ┌─────────────┐
+Client ──▶ FastAPI ─┤ Redis Cache  │ (hit → return cached answer)
+                    └──────┬──────┘
+                           │ miss
+                    ┌──────▼──────┐
+                    │  Task Queue  │
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+         Ollama #1    Ollama #2    Ollama #3
+```
+
+**Caching strategy:**
+- **Embedding cache**: Cache query → embedding vector in Redis. Same query hits cache instead of re-computing embeddings. TTL: 24 hours.
+- **Response cache**: Cache (question_hash, route) → answer. Exact-match queries return instantly. TTL: 1 hour (documents may update).
+- **Semantic cache** (future): Use embedding similarity to match "close enough" queries to cached answers.
+
+**Key metrics:**
+- Concurrent request throughput (target: 50 req/min sustained)
+- p95 latency (target: <5s for cache hits, <15s for cache misses)
+- Cache hit rate (target: >30% for production workloads)
+- Ollama GPU utilization across replicas
+
+**Estimated effort:** 3-4 weeks
+
+### Phase 3: Enterprise (Multi-Team, Multi-Product)
+
+**Goal:** Production-grade system supporting multiple product lines, teams, and compliance requirements.
+
+**Changes:**
+
+| Component | Current → New | Files Affected |
+|-----------|--------------|----------------|
+| Vector store | Single collection → **Per-product-line shards** (ECU, sensors, actuators) | `retrieval/retriever.py`, `config.py` |
+| Access control | None → **RBAC** via JWT tokens, team-scoped document access | New `auth/` module |
+| Model routing | Single LLM → **Complexity-based routing** (simple → small model, complex → large model) | `agent/router.py`, `agent/nodes.py` |
+| Observability | Python logging → **OpenTelemetry** traces + **LangSmith** for LLM observability | All agent modules, new `telemetry/` module |
+| Evaluation | Manual CLI → **Automated CI/CD evaluation** with regression detection | `.github/workflows/`, `eval/` |
+| A/B testing | None → **Experiment framework** for prompt/model/retrieval variants | New `experiments/` module, `eval/evaluate.py` |
+
+**Model complexity routing:**
+```python
+# Route queries by estimated complexity
+if is_simple_lookup(query):       # "RAM of ECU-850?"
+    model = "phi3:mini"           # Fast, small model (~2s)
+elif is_comparison(query):        # "Compare all models"
+    model = "mistral:7b"          # Medium model (~12s)
+elif is_reasoning(query):         # "Why would I choose 850b over 850?"
+    model = "llama3:70b"          # Large model, high quality (~30s)
+```
+
+**Observability stack:**
+- **OpenTelemetry**: Distributed traces across API → retrieval → LLM, with span attributes for route, model, latency.
+- **LangSmith**: LLM-specific observability — prompt/response pairs, token usage, quality scoring.
+- **Grafana dashboards**: Real-time metrics — latency percentiles, error rates, cache hit ratios, accuracy trends.
+- **Alerting**: PagerDuty alerts for latency spikes (>30s p95), accuracy drops (below 80% on eval suite), Ollama health failures.
+
+**CI/CD evaluation pipeline:**
+```
+PR opened → build → run eval suite → compare accuracy to main branch
+  ├─ accuracy >= baseline   → ✅ auto-approve
+  └─ accuracy < baseline    → ❌ block merge, flag regression
+```
+
+**Key metrics:**
+- Per-team query volume and latency SLAs
+- Model routing distribution (% queries per model tier)
+- End-to-end trace duration breakdown (embedding / retrieval / LLM / total)
+- Evaluation accuracy trend over time (regression detection)
+- Cost per query (compute + LLM inference)
+
+**Estimated effort:** 8-12 weeks
+
+### Summary
+
+| Phase | Scale | Latency Target | Key Technology | Effort |
+|-------|-------|---------------|----------------|--------|
+| **0 (current)** | 3 docs, 1 user | <20s | FAISS, Ollama, MLflow | Done |
+| **1 (data)** | 500 docs | <15s | Qdrant, incremental indexing | 2-3 weeks |
+| **2 (concurrency)** | 50 users | <5s (cached) | Redis, FastAPI, Ollama replicas | 3-4 weeks |
+| **3 (enterprise)** | Multi-team | SLA-based | OpenTelemetry, RBAC, model routing | 8-12 weeks |
