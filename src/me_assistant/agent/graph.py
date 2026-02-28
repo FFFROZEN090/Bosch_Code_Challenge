@@ -2,13 +2,17 @@
 
 Graph structure:
     START → classify → conditional_edge:
-      ├─ ECU_700  → retrieve_single  → synthesize → END
-      ├─ ECU_800  → retrieve_single  → synthesize → END
-      ├─ COMPARE  → retrieve_compare → synthesize → END
-      └─ UNKNOWN  → retrieve_compare → synthesize → END
+      ├─ ECU_700  → retrieve_single  → validate_confidence → synthesize → END
+      ├─ ECU_800  → retrieve_single  → validate_confidence → synthesize → END
+      ├─ COMPARE  → retrieve_compare → validate_confidence → synthesize → END
+      └─ UNKNOWN  → retrieve_compare → validate_confidence → synthesize → END
+
+The validate_confidence node may trigger a LangGraph interrupt for
+human-in-the-loop review when confidence is low.
 """
 
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
@@ -17,6 +21,7 @@ from me_assistant.agent.nodes import (
     classify_node,
     make_retrieve_single_node,
     make_retrieve_compare_node,
+    validate_confidence_node,
     make_synthesize_node,
 )
 
@@ -32,12 +37,15 @@ def _route_after_classify(state: dict) -> str:
 def build_graph(
     index: FAISS,
     full_doc_chunks: list[Document],
+    enable_hitl: bool = False,
 ) -> StateGraph:
     """Build and compile the agent graph.
 
     Args:
         index: FAISS vector store for single-source retrieval.
         full_doc_chunks: Full-document chunks for comparison retrieval.
+        enable_hitl: If True, enable human-in-the-loop with a checkpointer
+                     so interrupt() can pause the graph.
 
     Returns:
         A compiled LangGraph ready for .invoke().
@@ -48,13 +56,17 @@ def build_graph(
     graph.add_node("classify", classify_node)
     graph.add_node("retrieve_single", make_retrieve_single_node(index))
     graph.add_node("retrieve_compare", make_retrieve_compare_node(full_doc_chunks))
+    graph.add_node("validate_confidence", validate_confidence_node)
     graph.add_node("synthesize", make_synthesize_node())
 
     # Edges
     graph.add_edge(START, "classify")
     graph.add_conditional_edges("classify", _route_after_classify)
-    graph.add_edge("retrieve_single", "synthesize")
-    graph.add_edge("retrieve_compare", "synthesize")
+    graph.add_edge("retrieve_single", "validate_confidence")
+    graph.add_edge("retrieve_compare", "validate_confidence")
+    graph.add_edge("validate_confidence", "synthesize")
     graph.add_edge("synthesize", END)
 
-    return graph.compile()
+    # Checkpointer is required for interrupt() to work in HITL mode
+    checkpointer = MemorySaver() if enable_hitl else None
+    return graph.compile(checkpointer=checkpointer)

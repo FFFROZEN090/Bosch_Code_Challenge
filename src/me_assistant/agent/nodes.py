@@ -1,16 +1,18 @@
 """LangGraph node functions for the agent pipeline.
 
 Each node takes AgentState as input and returns a partial state update dict.
-Nodes: classify → retrieve_single / retrieve_compare → synthesize
+Nodes: classify → retrieve → validate_confidence → synthesize
 """
 
 import json
 import logging
+import re
 import time
 import urllib.request
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langgraph.types import interrupt
 
 from me_assistant.config import OLLAMA_BASE_URL, OLLAMA_MODEL
 from me_assistant.agent.router import route_query
@@ -98,6 +100,70 @@ def make_retrieve_compare_node(full_doc_chunks: list[Document]):
         return {"context": context, "sources": sources}
 
     return retrieve_compare_node
+
+
+def validate_confidence_node(state: dict) -> dict:
+    """Check retrieval confidence and flag low-confidence queries for human review.
+
+    Confidence is LOW when:
+    - route == UNKNOWN (no model/series detected)
+    - Query mentions a model name not in our database (e.g., "ECU-900")
+    - Context is empty (retrieval returned nothing)
+
+    When confidence is low, the node triggers a LangGraph interrupt to pause
+    the pipeline and request human input before proceeding to synthesis.
+    """
+    route = state.get("route", "")
+    question = state.get("question", "")
+    context = state.get("context", "")
+    review_reasons = []
+
+    # Check 1: UNKNOWN route
+    if route == "UNKNOWN":
+        review_reasons.append("No ECU model or series detected in query")
+
+    # Check 2: Query mentions an unknown model (e.g., "ECU-900", "ECU-650")
+    ecu_mentions = re.findall(r"\bECU[-\s]?(\d+\w*)\b", question, re.IGNORECASE)
+    for mention in ecu_mentions:
+        normalized = mention.lower().rstrip()
+        if normalized not in ("750", "850", "850b", "700", "800"):
+            review_reasons.append(f"Unknown model referenced: ECU-{mention}")
+
+    # Check 3: Empty context (retrieval failure)
+    if not context.strip():
+        review_reasons.append("Retrieval returned no context")
+
+    if review_reasons:
+        reason = "; ".join(review_reasons)
+        logger.warning("Low confidence — needs human review: %s", reason)
+
+        # Interrupt the graph: pause and wait for human input
+        human_input = interrupt({
+            "reason": reason,
+            "question": question,
+            "route": route,
+            "context_preview": context[:200] if context else "(empty)",
+        })
+
+        # If human provides a corrected route, update state
+        if isinstance(human_input, dict):
+            if "route" in human_input:
+                logger.info("Human corrected route to: %s", human_input["route"])
+                return {
+                    "needs_human_review": False,
+                    "review_reason": f"Human corrected: {reason}",
+                    "route": human_input["route"],
+                }
+
+        return {
+            "needs_human_review": False,
+            "review_reason": f"Human approved: {reason}",
+        }
+
+    return {
+        "needs_human_review": False,
+        "review_reason": "",
+    }
 
 
 def _call_ollama(prompt: str) -> str:

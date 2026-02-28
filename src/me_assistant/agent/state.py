@@ -7,15 +7,17 @@ class AgentState(TypedDict):
     """State that flows through the LangGraph agent pipeline.
 
     Fields:
-        question:       The user's original question.
-        route:          Classification result: ECU_700 | ECU_800 | COMPARE | UNKNOWN.
-        matched_models: Specific models detected in the query (e.g. ["ECU-850b"]).
-        route_reason:   Human-readable explanation of the routing decision.
-        context:        Retrieved document text to feed into the LLM.
-        answer:         The final synthesized answer.
-        sources:        List of source references (dicts with source_file, chunk_id).
-        confidence:     Confidence score (0.0 - 1.0) for the answer.
-        latency_ms:     Total processing time in milliseconds.
+        question:           The user's original question.
+        route:              Classification result: ECU_700 | ECU_800 | COMPARE | UNKNOWN.
+        matched_models:     Specific models detected in the query (e.g. ["ECU-850b"]).
+        route_reason:       Human-readable explanation of the routing decision.
+        context:            Retrieved document text to feed into the LLM.
+        answer:             The final synthesized answer.
+        sources:            List of source references (dicts with source_file, chunk_id).
+        confidence:         Confidence score (0.0 - 1.0) for the answer.
+        latency_ms:         Total processing time in milliseconds.
+        needs_human_review: Whether the query requires human review before synthesis.
+        review_reason:      Why human review is needed (empty if not needed).
     """
     question: str
     route: str
@@ -26,3 +28,5 @@ class AgentState(TypedDict):
     sources: list[dict]
     confidence: float
     latency_ms: float
+    needs_human_review: bool
+    review_reason: str
