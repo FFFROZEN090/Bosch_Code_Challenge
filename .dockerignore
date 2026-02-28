@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+mlruns/
+.git/
+*.md
+!data/docs/*.md
