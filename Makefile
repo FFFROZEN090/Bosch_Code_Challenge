@@ -1,4 +1,4 @@
-.PHONY: install ingest log-model serve eval lint test clean
+.PHONY: install ingest log-model serve eval eval-mlflow lint test clean
 
 install:
 	pip install -e ".[dev]"
@@ -14,6 +14,9 @@ serve:
 
 eval:
 	python scripts/evaluate.py
+
+eval-mlflow:
+	python scripts/evaluate.py --mlflow
 
 lint:
 	pylint src/me_assistant
