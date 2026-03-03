@@ -27,17 +27,36 @@ User Question
      │    └────────┬────────┘
      │             │
      ▼             ▼
-     ┌──────────────┐
-     │  Synthesize   │  LLM generates answer with source citations
-     └──────┬───────┘
-            │
-            ▼
-      Final Answer
+┌────────────────┐
+│ Check Evidence  │  Is retrieved context sufficient?
+└───────┬────────┘
+        │
+        ├── sufficient ─────────────────┐
+        │                               ▼
+        │                  ┌─────────────────────────┐
+        │                  │ Validate Confidence       │  Flag low-confidence for
+        │                  │ (Human-in-the-Loop)       │  human review via interrupt()
+        │                  └────────────┬────────────┘
+        │                               │
+        └── insufficient                ▼
+        │                  ┌──────────────┐
+        ▼                  │  Synthesize   │  LLM generates answer with citations
+┌───────────────┐          └──────┬───────┘
+│ Rewrite Query  │                │
+└───────┬───────┘                ▼
+        │                  Final Answer
+        ▼
+   (retry retrieval,
+    max 2 attempts)
 ```
 
-The agent uses a **hybrid retrieval** strategy:
+The agent uses a **hybrid retrieval** strategy with **multi-step reasoning**:
 - **Single-source queries** (e.g., "RAM of ECU-850?"): FAISS vector search filtered by series/model metadata
 - **Comparison queries** (e.g., "Compare all models"): Full-document injection — the 3 ECU docs total ~4KB, small enough to fit entirely in context
+- **Evidence validation**: After retrieval, the agent checks if the context is sufficient. If not, it rewrites the query and retries (max 2 attempts).
+- **Human-in-the-loop**: Low-confidence queries (unknown models, empty context) trigger a LangGraph `interrupt()` for human review before synthesis.
+
+The graph uses **deterministic rule-based routing** rather than LLM-driven tool selection. This achieves 100% routing accuracy on the test set and avoids an extra LLM call per query. LangChain tool wrappers were prototyped but removed in favor of this more reliable approach.
 
 ## Key Decisions
 
@@ -89,6 +108,7 @@ The agent uses a **hybrid retrieval** strategy:
     ├── test_router.py          # Router correctness (17 tests)
     ├── test_retrieval.py       # Retrieval filtering (6 tests)
     ├── test_graph.py           # Node-level integration (4 tests)
+    ├── test_integration.py     # Full pipeline with mocked LLM (3 tests)
     └── test_predict.py         # MLflow schema validation (2 tests)
 ```
 
@@ -155,15 +175,54 @@ curl -X POST http://localhost:5001/invocations \
 
 - **Routing accuracy:** 10/10
 - **Pylint score:** 9.95/10
-- **Unit tests:** 28/28 passed
+- **Unit tests:** 31/31 passed
 
-## Testing Strategy
+## Testing & Validation Strategy
 
-- **Unit tests** (`test_router.py`): All 10 test questions route correctly, plus edge cases (case insensitivity, partial matches, superlative + single model)
-- **Retrieval tests** (`test_retrieval.py`): Metadata filtering verified — no cross-series contamination
-- **Integration tests** (`test_graph.py`): Individual LangGraph nodes tested (classify, retrieve_single, retrieve_compare)
-- **Schema tests** (`test_predict.py`): MLflow model interface validation
-- **Evaluation framework** (`eval/`): Keyword-based answer accuracy checking against expected values from test CSV
+### Automated Testing
+
+The test suite follows a 4-tier testing pyramid, all runnable offline without an LLM:
+
+| Layer | Test File | Count | What It Validates |
+|-------|-----------|-------|-------------------|
+| Unit | `test_router.py` | 17 | All 10 test questions route correctly, plus edge cases (case insensitivity, 850b vs 850 partial match, superlative + single model) |
+| Retrieval | `test_retrieval.py` | 6 | Metadata filtering by series/model, no cross-series contamination, full-doc injection for COMPARE |
+| Integration | `test_graph.py` | 4 | LangGraph node functions (classify, retrieve_single, retrieve_compare) with real FAISS index |
+| Integration | `test_integration.py` | 3 | Full graph pipeline end-to-end with mocked LLM, verifying state flow through all nodes |
+| Schema | `test_predict.py` | 2 | MLflow PythonModel interface: class instantiation and input schema validation |
+
+Run all tests: `make test` (requires no Ollama or GPU — all LLM calls are mocked where needed).
+
+### Domain Expertise Validation
+
+The evaluation framework (`eval/`) validates the agent against a **golden dataset** of 10 domain-expert-curated questions (`data/test-questions.csv`). Each question has:
+
+- **Expected keywords**: Specific technical values that must appear in the answer (e.g., "+85°C", "LPDDR4", "5 TOPS"). A question passes only if ALL required keywords are found.
+- **Expected route**: The correct classification (ECU_700, ECU_800, COMPARE) — validates the agent consults the right product line.
+- **Expected sources**: The specific document file(s) the answer should be derived from — validates source tracing.
+
+This approach ensures **factual correctness** over stylistic similarity: the agent must cite the exact specification values from the documentation, not just produce a plausible-sounding response.
+
+**Extending the benchmark**: To add new test questions, a domain expert defines the question, required keywords from the documentation, expected route, and expected source files in `test-questions.csv` and `eval/metrics.py`. No model retraining is needed — the evaluation framework picks up new questions automatically.
+
+### Continuous Validation & Production Monitoring
+
+Every evaluation run is tracked in **MLflow** (`me-assistant-evaluation` experiment), logging:
+
+| Metric | Description |
+|--------|-------------|
+| `overall_accuracy` | Fraction of questions where all required keywords are present |
+| `overall_routing_accuracy` | Fraction of questions routed to the correct retrieval path |
+| `overall_source_accuracy` | Fraction of questions citing the correct source documents |
+| `overall_avg_latency_ms` | Mean response time across all questions |
+| `overall_p95_latency_ms` | 95th percentile response time |
+
+**Regression detection**: After any change to prompts, retrieval logic, or model configuration, re-run `make eval-mlflow` and compare metrics against the baseline run in MLflow. A drop in accuracy or spike in latency signals a regression before deployment.
+
+**Production monitoring strategy** (see Scalability Roadmap Phase 3 for full plan):
+- **Latency alerting**: Flag queries exceeding the 20s SLA threshold
+- **Confidence-based routing**: Low-confidence queries (route=UNKNOWN, missing context) are flagged for human review via the LangGraph interrupt mechanism
+- **Accuracy drift detection**: Periodic re-evaluation against the golden dataset to detect model degradation over time
 
 ## Limitations
 

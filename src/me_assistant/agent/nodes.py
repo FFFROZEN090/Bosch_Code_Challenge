@@ -109,8 +109,41 @@ def make_retrieve_compare_node(full_doc_chunks: list[Document]):
     return retrieve_compare_node
 
 
+def _compute_confidence(state: dict) -> float:
+    """Compute a heuristic confidence score (0.0-1.0) from retrieval signals.
+
+    Factors:
+    - Route type: known route (ECU_700/ECU_800) → 0.85, COMPARE → 0.9
+      (full-doc injection is reliable), UNKNOWN → 0.5.
+    - Evidence quality: retrieval needed retry → -0.15.
+    - Context length: empty → -0.3, very short → -0.1.
+    """
+    route = state.get("route", "")
+    context = state.get("context", "")
+    evidence_sufficient = state.get("evidence_sufficient", True)
+    retrieval_attempts = state.get("retrieval_attempts", 1)
+
+    if route == "UNKNOWN":
+        score = 0.5
+    elif route == "COMPARE":
+        score = 0.9
+    else:
+        score = 0.85
+
+    if not evidence_sufficient or retrieval_attempts > 1:
+        score -= 0.15
+
+    ctx_len = len(context.strip())
+    if ctx_len == 0:
+        score -= 0.3
+    elif ctx_len < 100:
+        score -= 0.1
+
+    return max(0.0, min(1.0, round(score, 2)))
+
+
 def validate_confidence_node(state: dict) -> dict:
-    """Check retrieval confidence and flag low-confidence queries for human review.
+    """Compute confidence and flag low-confidence queries for human review.
 
     Confidence is LOW when:
     - route == UNKNOWN (no model/series detected)
@@ -123,6 +156,7 @@ def validate_confidence_node(state: dict) -> dict:
     route = state.get("route", "")
     question = state.get("question", "")
     context = state.get("context", "")
+    confidence = _compute_confidence(state)
     review_reasons = []
 
     # Check 1: UNKNOWN route
@@ -142,13 +176,14 @@ def validate_confidence_node(state: dict) -> dict:
 
     if review_reasons:
         reason = "; ".join(review_reasons)
-        logger.warning("Low confidence — needs human review: %s", reason)
+        logger.warning("Low confidence (%.2f) — needs human review: %s", confidence, reason)
 
         # Interrupt the graph: pause and wait for human input
         human_input = interrupt({
             "reason": reason,
             "question": question,
             "route": route,
+            "confidence": confidence,
             "context_preview": context[:200] if context else "(empty)",
         })
 
@@ -157,17 +192,21 @@ def validate_confidence_node(state: dict) -> dict:
             if "route" in human_input:
                 logger.info("Human corrected route to: %s", human_input["route"])
                 return {
+                    "confidence": confidence,
                     "needs_human_review": False,
                     "review_reason": f"Human corrected: {reason}",
                     "route": human_input["route"],
                 }
 
         return {
+            "confidence": confidence,
             "needs_human_review": False,
             "review_reason": f"Human approved: {reason}",
         }
 
+    logger.info("Confidence: %.2f", confidence)
     return {
+        "confidence": confidence,
         "needs_human_review": False,
         "review_reason": "",
     }
@@ -313,7 +352,6 @@ def make_synthesize_node():
 
         return {
             "answer": answer,
-            "confidence": 1.0,
             "latency_ms": elapsed_ms,
         }
 
