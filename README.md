@@ -105,7 +105,7 @@ The graph uses **deterministic rule-based routing** rather than LLM-driven tool 
 │   ├── evaluate.py             # CLI: run evaluation
 │   └── entrypoint.sh           # Docker entrypoint
 └── tests/
-    ├── test_router.py          # Router correctness (17 tests)
+    ├── test_router.py          # Router correctness (16 tests)
     ├── test_retrieval.py       # Retrieval filtering (6 tests)
     ├── test_graph.py           # Node-level integration (4 tests)
     ├── test_integration.py     # Full pipeline with mocked LLM (3 tests)
@@ -185,7 +185,7 @@ The test suite follows a 4-tier testing pyramid, all runnable offline without an
 
 | Layer | Test File | Count | What It Validates |
 |-------|-----------|-------|-------------------|
-| Unit | `test_router.py` | 17 | All 10 test questions route correctly, plus edge cases (case insensitivity, 850b vs 850 partial match, superlative + single model) |
+| Unit | `test_router.py` | 16 | All 10 test questions route correctly, plus edge cases (case insensitivity, 850b vs 850 partial match, superlative + single model) |
 | Retrieval | `test_retrieval.py` | 6 | Metadata filtering by series/model, no cross-series contamination, full-doc injection for COMPARE |
 | Integration | `test_graph.py` | 4 | LangGraph node functions (classify, retrieve_single, retrieve_compare) with real FAISS index |
 | Integration | `test_integration.py` | 3 | Full graph pipeline end-to-end with mocked LLM, verifying state flow through all nodes |
@@ -351,8 +351,8 @@ elif is_reasoning(query):         # "Why would I choose 850b over 850?"
 **CI/CD evaluation pipeline:**
 ```
 PR opened → build → run eval suite → compare accuracy to main branch
-  ├─ accuracy >= baseline   → ✅ auto-approve
-  └─ accuracy < baseline    → ❌ block merge, flag regression
+  ├─ accuracy >= baseline   → auto-approve
+  └─ accuracy < baseline    → block merge, flag regression
 ```
 
 **Key metrics:**

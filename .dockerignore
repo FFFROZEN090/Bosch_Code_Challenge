@@ -1,13 +1,36 @@
+# Python artifacts
 __pycache__/
 *.pyc
 *.egg-info/
 .eggs/
 dist/
 build/
+
+# Virtual environments
 .venv/
 venv/
+
+# Secrets
 .env
+
+# MLflow local runs (rebuilt in container)
 mlruns/
+
+# Git
 .git/
+.gitignore
+
+# Documentation (not needed in image)
 *.md
 !data/docs/*.md
+
+# Tests (not needed in production image)
+tests/
+
+# Nginx config (mounted as volume)
+nginx/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store

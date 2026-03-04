@@ -1,7 +1,9 @@
-.PHONY: install ingest log-model serve eval eval-mlflow lint test clean
+.PHONY: install ingest log-model serve eval eval-mlflow lint test clean ui \
+       docker-up docker-down docker-build docker-logs docker-clean
 
+# ── Local Development ─────────────────────────────────────
 install:
-	pip install -e ".[dev]"
+	pip install -e ".[dev,ui]"
 
 ingest:
 	python scripts/ingest.py
@@ -24,6 +26,31 @@ lint:
 test:
 	pytest tests/ -v
 
+ui:
+	streamlit run ui/app.py --server.port 8501
+
 clean:
 	rm -rf data/faiss_index/*
 	rm -rf mlruns/
+
+# ── Docker ────────────────────────────────────────────────
+docker-up:
+	docker compose up --build -d
+	@echo ""
+	@echo "  ME Engineering Assistant is starting..."
+	@echo "  UI:  http://localhost"
+	@echo "  API: http://localhost/api/invocations"
+	@echo ""
+	@echo "  View logs: make docker-logs"
+
+docker-down:
+	docker compose down
+
+docker-build:
+	docker compose build
+
+docker-logs:
+	docker compose logs -f
+
+docker-clean:
+	docker compose down -v --rmi local

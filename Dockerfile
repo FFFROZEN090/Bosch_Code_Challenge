@@ -2,21 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps for building native extensions
+# System deps
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies first (cache-friendly)
+# Copy source first (pyproject.toml needs src/ for setuptools package discovery)
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e "." 2>/dev/null || \
-    pip install --no-cache-dir .
-
-# Copy source code and data
 COPY src/ src/
 COPY data/docs/ data/docs/
 COPY data/test-questions.csv data/
 COPY scripts/ scripts/
+COPY ui/ ui/
+
+# Install Python dependencies + package
+RUN pip install --no-cache-dir -e ".[ui]"
 
 # Pre-download the embedding model so it's baked into the image
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
@@ -24,9 +24,9 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 # Build FAISS index at build time (no LLM needed for this)
 RUN python scripts/ingest.py
 
-# Install package in editable mode with full source
-RUN pip install --no-cache-dir -e .
+# SERVICE_MODE: "api" (MLflow serving) or "ui" (Streamlit)
+ENV SERVICE_MODE=api
 
-EXPOSE 5001
+EXPOSE 5001 8501
 
 ENTRYPOINT ["bash", "scripts/entrypoint.sh"]
