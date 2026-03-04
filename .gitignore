@@ -12,3 +12,4 @@ venv/
 mlruns/
 DESIGN.md
 DESIGN.md
+*.egg-info/
