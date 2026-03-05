@@ -58,3 +58,15 @@ def test_route_superlative_with_single_model():
 def test_route_series_level():
     result = route_query("Tell me about the 700 series")
     assert result.route == "ECU_700"
+
+
+def test_route_850b_typo_with_space():
+    """'850 b' (space typo) should match ECU-850b, not ECU-850."""
+    result = route_query("Tell me about 850 b specs")
+    assert "ECU-850b" in result.matched_models
+
+
+def test_route_ecu_850b_typo_with_space():
+    """'ECU-850 b' (space typo) should match ECU-850b, not ECU-850."""
+    result = route_query("What is the power of ECU-850 b?")
+    assert "ECU-850b" in result.matched_models

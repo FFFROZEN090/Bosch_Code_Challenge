@@ -26,7 +26,7 @@ for i in $(seq 1 60); do
 done
 
 # ── [2/4] Pull model ───────────────────────────────────────
-MODEL="${OLLAMA_MODEL:-mistral:7b}"
+MODEL="${OLLAMA_MODEL:-qwen2.5:7b}"
 echo "[2/4] Ensuring model '${MODEL}' is available..."
 curl -sf "${OLLAMA_URL}/api/pull" -d "{\"name\": \"${MODEL}\"}" > /dev/null 2>&1 || true
 echo "      Model ready."

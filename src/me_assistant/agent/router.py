@@ -25,11 +25,12 @@ _700_MODELS = {"ECU-750", "750"}
 _800_MODELS = {"ECU-850b", "850b", "ECU-850", "850"}
 
 # Must check 850b BEFORE 850 to avoid partial match
+# Allow optional space between 850 and b to handle typos like "850 b" or "ECU-850 b"
 _MODEL_PATTERNS = [
-    (re.compile(r"\bECU[-\s]?850b\b", re.IGNORECASE), "ECU-850b", "800"),
-    (re.compile(r"\b850b\b", re.IGNORECASE), "ECU-850b", "800"),
-    (re.compile(r"\bECU[-\s]?850\b", re.IGNORECASE), "ECU-850", "800"),
-    (re.compile(r"\b850\b(?!b)", re.IGNORECASE), "ECU-850", "800"),
+    (re.compile(r"\bECU[-\s]?850\s?b\b", re.IGNORECASE), "ECU-850b", "800"),
+    (re.compile(r"\b850\s?b\b", re.IGNORECASE), "ECU-850b", "800"),
+    (re.compile(r"\bECU[-\s]?850\b(?!\s?b)", re.IGNORECASE), "ECU-850", "800"),
+    (re.compile(r"\b850\b(?!\s?b)", re.IGNORECASE), "ECU-850", "800"),
     (re.compile(r"\bECU[-\s]?750\b", re.IGNORECASE), "ECU-750", "700"),
     (re.compile(r"\b750\b", re.IGNORECASE), "ECU-750", "700"),
 ]

@@ -5,7 +5,7 @@
 # Ollama runs on the HOST machine (not in Docker) for GPU acceleration.
 # Start it before running docker compose:
 #   ollama serve &
-#   ollama pull mistral:7b
+#   ollama pull qwen2.5:7b
 
 services:
 
@@ -17,7 +17,7 @@ services:
     environment:
       SERVICE_MODE: api
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
     networks:
       - internal
     healthcheck:
@@ -40,7 +40,7 @@ services:
     environment:
       SERVICE_MODE: ui
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
     networks:
       - internal
     healthcheck:

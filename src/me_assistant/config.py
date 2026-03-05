@@ -20,7 +20,7 @@ DOC_METADATA = {
 # LLM configuration (OLLAMA_BASE_URL overridable via env for Docker)
 LLM_PROVIDER = "ollama"  # "ollama" | "openai"
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 
 # Embedding configuration
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
