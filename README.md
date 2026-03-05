@@ -283,6 +283,15 @@ Every evaluation run is tracked in **MLflow** (`me-assistant-evaluation` experim
 | `overall_avg_latency_ms` | Mean response time across all questions |
 | `overall_p95_latency_ms` | 95th percentile response time |
 
+Each run also logs two **artifacts** for full traceability:
+
+| Artifact | Contents |
+|----------|----------|
+| `evaluation_results.csv` | Complete per-question results: answer text, route, sources, keyword pass/fail, judge score (1-5), judge reasoning |
+| `evaluation_summary.json` | Aggregate scores + per-question summary with `judge_score` and `judge_reason` for every question |
+
+This ensures every evaluation is fully reproducible — not just the aggregate numbers, but the LLM judge's rationale for each individual score.
+
 **Regression detection**: After any change to prompts, retrieval logic, or model configuration, re-run `make eval-mlflow` and compare metrics against the baseline run in MLflow. A drop in accuracy or spike in latency signals a regression before deployment.
 
 **Production monitoring strategy** (see Scalability Roadmap Phase 3 for full plan):

@@ -204,18 +204,23 @@ def run_mlflow_evaluation() -> dict:
             csv_path = Path(tmpdir) / "evaluation_results.csv"
             results_df.to_csv(csv_path, index=False)
 
+            per_q_summary = []
+            for r in per_question:
+                entry = {
+                    "question_id": r["question_id"],
+                    "category": r["category"],
+                    "pass": r["answer_correct"],
+                    "route_correct": r["route_correct"],
+                    "latency_ms": round(r["latency_ms"], 1),
+                }
+                if "judge_score" in r:
+                    entry["judge_score"] = r["judge_score"]
+                    entry["judge_reason"] = r.get("judge_reason", "")
+                per_q_summary.append(entry)
+
             summary = {
                 "overall": overall,
-                "per_question_summary": [
-                    {
-                        "question_id": r["question_id"],
-                        "category": r["category"],
-                        "pass": r["answer_correct"],
-                        "route_correct": r["route_correct"],
-                        "latency_ms": round(r["latency_ms"], 1),
-                    }
-                    for r in per_question
-                ],
+                "per_question_summary": per_q_summary,
             }
             summary_path = Path(tmpdir) / "evaluation_summary.json"
             summary_path.write_text(
