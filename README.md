@@ -285,14 +285,14 @@ The gap between keyword (70%) and judge (96%) accuracy confirms the dual evaluat
 
 Every evaluation run is tracked in **MLflow** (`me-assistant-evaluation` experiment), logging:
 
-| Metric | Description |
-|--------|-------------|
-| `overall_accuracy` | Fraction of questions where all required keywords are present |
-| `overall_routing_accuracy` | Fraction of questions routed to the correct retrieval path |
-| `overall_source_accuracy` | Fraction of questions citing the correct source documents |
-| `overall_avg_judge_score` | LLM-as-Judge average score (1-5 scale) |
-| `overall_avg_latency_ms` | Mean response time across all questions |
-| `overall_p95_latency_ms` | 95th percentile response time |
+| Metric | Description | Baseline Value |
+|--------|-------------|----------------|
+| `overall_accuracy` | Fraction of questions where all required keywords are present | 0.70 (7/10) |
+| `overall_routing_accuracy` | Fraction of questions routed to the correct retrieval path | 1.00 (10/10) |
+| `overall_source_accuracy` | Fraction of questions citing the correct source documents | 1.00 (10/10) |
+| `overall_avg_judge_score` | LLM-as-Judge average score (1-5 scale) | 4.8 |
+| `overall_avg_latency_ms` | Mean response time across all questions | ~10,300 ms |
+| `overall_p95_latency_ms` | 95th percentile response time | ~15,800 ms |
 
 Each run also logs two **artifacts** for full traceability:
 
