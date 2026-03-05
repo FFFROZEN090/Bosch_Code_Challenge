@@ -320,6 +320,7 @@ def _call_ollama(prompt: str) -> str:
         "model": OLLAMA_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
+        "think": False,
     }).encode("utf-8")
 
     req = urllib.request.Request(
