@@ -1,5 +1,6 @@
 .PHONY: install ingest log-model serve eval eval-mlflow lint test clean ui \
-       docker-up docker-down docker-build docker-logs docker-clean
+       docker-up docker-down docker-build docker-logs docker-clean \
+       benchmark-routing
 
 # ── Local Development ─────────────────────────────────────
 install:
@@ -28,6 +29,9 @@ test:
 
 ui:
 	streamlit run ui/app.py --server.port 8501
+
+benchmark-routing:
+	python scripts/benchmark_routing.py --runs 3
 
 clean:
 	rm -rf data/faiss_index/*

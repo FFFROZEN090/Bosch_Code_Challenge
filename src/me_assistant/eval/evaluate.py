@@ -25,6 +25,7 @@ from me_assistant.eval.metrics import (
     check_routing_correctness,
     check_source_correctness,
     compute_overall_scores,
+    llm_judge_answer,
     make_mlflow_metrics,
 )
 
@@ -88,6 +89,7 @@ def _run_questions(graph, questions):
             "question": q["question"],
             "category": q["category"],
             "expected_answer": q["expected_answer"],
+            "criteria": q["criteria"],
             "answer": answer,
             "route": route,
             "sources": sources,
@@ -100,6 +102,24 @@ def _run_questions(graph, questions):
     return per_question
 
 
+def _run_llm_judge(per_question: list[dict]) -> None:
+    """Run LLM-as-Judge on all results, adding judge_score/judge_reason in-place."""
+    logger.info("Running LLM-as-Judge on %d answers...", len(per_question))
+    for r in per_question:
+        judge = llm_judge_answer(
+            question=r["question"],
+            expected_answer=r["expected_answer"],
+            actual_answer=r["answer"],
+            criteria=r["criteria"],
+        )
+        r["judge_score"] = judge["score"]
+        r["judge_reason"] = judge["reason"]
+        logger.info(
+            "  Q%d judge=%d/5: %s",
+            r["question_id"], judge["score"], judge["reason"][:80],
+        )
+
+
 def run_evaluation() -> dict:
     """Run all test questions through the agent pipeline and evaluate.
 
@@ -109,6 +129,7 @@ def run_evaluation() -> dict:
     graph = _build_graph()
     questions = load_test_questions()
     per_question = _run_questions(graph, questions)
+    _run_llm_judge(per_question)
     overall = compute_overall_scores(per_question)
     return {"per_question": per_question, "overall": overall}
 
@@ -136,11 +157,12 @@ def run_mlflow_evaluation() -> dict:
             "llm_model": OLLAMA_MODEL,
             "embedding_model": EMBEDDING_MODEL,
             "num_questions": len(questions),
-            "evaluation_type": "keyword_matching",
+            "evaluation_type": "keyword_matching + llm_judge",
         })
 
-        # Run all questions through the graph
+        # Run all questions through the graph, then score with LLM judge
         per_question = _run_questions(graph, questions)
+        _run_llm_judge(per_question)
         overall = compute_overall_scores(per_question)
 
         # Build eval DataFrame with predictions for mlflow.evaluate()
@@ -163,7 +185,7 @@ def run_mlflow_evaluation() -> dict:
         logger.info("mlflow.evaluate() metrics: %s", eval_result.metrics)
 
         # Log our aggregate metrics (supplements mlflow.evaluate output)
-        mlflow.log_metrics({
+        aggregate = {
             "overall_accuracy": overall["accuracy"],
             "overall_pass_count": overall["pass_count"],
             "overall_routing_accuracy": overall["routing_accuracy"],
@@ -171,7 +193,10 @@ def run_mlflow_evaluation() -> dict:
             "overall_avg_latency_ms": overall["avg_latency_ms"],
             "overall_p95_latency_ms": overall["p95_latency_ms"],
             "overall_max_latency_ms": overall["max_latency_ms"],
-        })
+        }
+        if "avg_judge_score" in overall:
+            aggregate["overall_avg_judge_score"] = overall["avg_judge_score"]
+        mlflow.log_metrics(aggregate)
 
         # Save per-question results as CSV artifact
         results_df = pd.DataFrame(per_question)

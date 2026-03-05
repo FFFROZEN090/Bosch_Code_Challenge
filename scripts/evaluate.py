@@ -20,16 +20,21 @@ def _print_results(results):
     for r in results["per_question"]:
         status = "PASS" if r["answer_correct"] else "FAIL"
         route_ok = "ok" if r["route_correct"] else "WRONG"
+        judge = f"  judge={r['judge_score']}/5" if "judge_score" in r else ""
         print(
             f"  Q{r['question_id']:2d} [{status}]  route={r['route']:<10s} "
-            f"({route_ok})  {r['latency_ms']:.0f}ms"
+            f"({route_ok})  {r['latency_ms']:.0f}ms{judge}"
         )
+        if "judge_reason" in r and r.get("judge_score", 0) > 0:
+            print(f"         {r['judge_reason'][:72]}")
 
     print("-" * 60)
     print(f"  Accuracy:          {overall['pass_count']}/{overall['total']} "
           f"({overall['accuracy']:.0%})")
     print(f"  Routing accuracy:  {overall['routing_accuracy']:.0%}")
     print(f"  Source accuracy:   {overall['source_accuracy']:.0%}")
+    if "avg_judge_score" in overall:
+        print(f"  LLM Judge (avg):   {overall['avg_judge_score']:.1f}/5")
     print(f"  Avg latency:       {overall['avg_latency_ms']:.0f}ms")
     print(f"  P95 latency:       {overall['p95_latency_ms']:.0f}ms")
     print(f"  Max latency:       {overall['max_latency_ms']:.0f}ms")
