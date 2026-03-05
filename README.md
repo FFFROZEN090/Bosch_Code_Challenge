@@ -9,40 +9,40 @@ User Question
      │
      ▼
 ┌──────────┐
-│ Classify  │  Rule-based router: detect models, series, compare triggers
+│ Classify │  Rule-based router: detect models, series, compare triggers
 └────┬─────┘
      │
      ├── ECU_700 ──┐
      ├── ECU_800 ──┤
      │             ▼
      │    ┌─────────────────┐
-     │    │ Retrieve Single  │  FAISS similarity search + metadata filter
+     │    │ Retrieve Single │  FAISS similarity search + metadata filter
      │    └────────┬────────┘
      │             │
      ├── COMPARE ──┤
      ├── UNKNOWN ──┤
      │             ▼
      │    ┌─────────────────┐
-     │    │ Retrieve Compare │  Full-document injection (docs are ~4KB total)
+     │    │ Retrieve Compare│  Full-document injection (docs are ~4KB total)
      │    └────────┬────────┘
      │             │
      ▼             ▼
 ┌────────────────┐
-│ Check Evidence  │  Is retrieved context sufficient?
+│ Check Evidence │  Is retrieved context sufficient?
 └───────┬────────┘
         │
         ├── sufficient ─────────────────┐
         │                               ▼
         │                  ┌─────────────────────────┐
-        │                  │ Validate Confidence       │  Flag low-confidence for
-        │                  │ (Human-in-the-Loop)       │  human review via interrupt()
+        │                  │ Validate Confidence     │  Flag low-confidence for
+        │                  │ (Human-in-the-Loop)     │  human review via interrupt()
         │                  └────────────┬────────────┘
         │                               │
         └── insufficient                ▼
         │                  ┌──────────────┐
-        ▼                  │  Synthesize   │  LLM generates answer with citations
+        ▼                  │  Synthesize  │  LLM generates answer with citations
 ┌───────────────┐          └──────┬───────┘
-│ Rewrite Query  │                │
+│ Rewrite Query │                │
 └───────┬───────┘                ▼
         │                  Final Answer
         ▼
