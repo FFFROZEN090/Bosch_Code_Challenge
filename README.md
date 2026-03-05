@@ -75,7 +75,7 @@ The graph uses **deterministic rule-based routing** rather than LLM-driven tool 
 ├── pyproject.toml              # Dependencies and project config
 ├── Makefile                    # Build/run targets
 ├── Dockerfile                  # Container image
-├── docker-compose.yml          # Ollama + RAG service
+├── docker-compose.yml          # 3-service orchestration (rag-api + ui + nginx)
 ├── data/
 │   ├── docs/                   # ECU specification documents (3 markdown files)
 │   ├── faiss_index/            # Pre-built FAISS index
@@ -148,14 +148,55 @@ make eval
 
 ### Docker
 
-```bash
-# Build and start both Ollama and RAG service
-docker compose up --build
+Ollama runs on the **host machine** (not inside Docker) for GPU acceleration. Start it before launching the containers:
 
-# Query the API
-curl -X POST http://localhost:5001/invocations \
+```bash
+# 1. Start Ollama on host and pull the model
+ollama serve &
+ollama pull mistral:7b
+
+# 2. Build and start containers (rag-api + ui + nginx)
+make docker-up          # or: docker compose up --build -d
+
+# 3. View logs
+make docker-logs        # or: docker compose logs -f
+
+# 4. Stop
+make docker-down        # or: docker compose down
+```
+
+The entrypoint automatically waits for Ollama, verifies the model is available, checks the FAISS index, and starts the service.
+
+**Access points** (all through Nginx reverse proxy on port 80):
+
+| Endpoint | URL | Description |
+|----------|-----|-------------|
+| Streamlit UI | http://localhost/ | Interactive chat interface |
+| REST API | http://localhost/api/invocations | MLflow model serving endpoint |
+| Health check | http://localhost/health | Nginx health status |
+
+**API usage example:**
+
+```bash
+curl -X POST http://localhost/api/invocations \
   -H 'Content-Type: application/json' \
   -d '{"dataframe_split": {"columns": ["question"], "data": [["What is the RAM of ECU-850?"]]}}'
+```
+
+**Response format** (MLflow PythonModel output):
+
+```json
+{
+  "predictions": [
+    {
+      "answer": "The ECU-850 has 2 GB of LPDDR4 RAM.",
+      "route": "ECU_800",
+      "sources": "[\"ECU-800_Series_Base.md\"]",
+      "confidence": 0.85,
+      "latency_ms": 10234.5
+    }
+  ]
+}
 ```
 
 ## Evaluation Results
