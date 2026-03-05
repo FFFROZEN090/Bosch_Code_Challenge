@@ -1,4 +1,9 @@
-"""Tests for LangGraph agent pipeline (no LLM calls)."""
+"""Tests for LangGraph agent pipeline (no LLM calls).
+
+Uses regex routing strategy to avoid requiring a running Ollama instance.
+"""
+
+from unittest.mock import patch
 
 import pytest
 from me_assistant.ingest.loader import load_all_documents
@@ -20,6 +25,7 @@ def pipeline_data():
     return index, full_doc_chunks
 
 
+@patch("me_assistant.agent.nodes.ROUTING_STRATEGY", "regex")
 def test_classify_node_single():
     state = {"question": "What is the RAM of ECU-850?"}
     result = classify_node(state)
@@ -28,6 +34,7 @@ def test_classify_node_single():
     assert result["route_reason"]
 
 
+@patch("me_assistant.agent.nodes.ROUTING_STRATEGY", "regex")
 def test_classify_node_compare():
     state = {"question": "Compare ECU-750 and ECU-850"}
     result = classify_node(state)

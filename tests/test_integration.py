@@ -3,6 +3,9 @@
 These tests run the complete LangGraph (classify → retrieve → check_evidence →
 validate_confidence → synthesize) with a mocked Ollama call, verifying that
 all state fields are populated correctly through the entire flow.
+
+Uses regex routing strategy to avoid requiring a running Ollama instance
+for the classify node.
 """
 
 from unittest.mock import patch
@@ -26,6 +29,7 @@ def graph():
     return build_graph(index, full_doc_chunks)
 
 
+@patch("me_assistant.agent.nodes.ROUTING_STRATEGY", "regex")
 @patch("me_assistant.agent.nodes._call_ollama", return_value=MOCK_LLM_ANSWER)
 def test_full_pipeline_single_source(mock_ollama, graph):
     """Test full pipeline for a single-source ECU-700 query."""
@@ -44,6 +48,7 @@ def test_full_pipeline_single_source(mock_ollama, graph):
     mock_ollama.assert_called_once()
 
 
+@patch("me_assistant.agent.nodes.ROUTING_STRATEGY", "regex")
 @patch("me_assistant.agent.nodes._call_ollama", return_value="Comparison results here.")
 def test_full_pipeline_compare(mock_ollama, graph):
     """Test full pipeline for a comparison query."""
@@ -58,6 +63,7 @@ def test_full_pipeline_compare(mock_ollama, graph):
     mock_ollama.assert_called_once()
 
 
+@patch("me_assistant.agent.nodes.ROUTING_STRATEGY", "regex")
 @patch("me_assistant.agent.nodes._call_ollama", return_value="ECU-850 has 2 GB LPDDR4.")
 def test_full_pipeline_model_specific(mock_ollama, graph):
     """Test that model-specific queries retrieve from the correct source."""

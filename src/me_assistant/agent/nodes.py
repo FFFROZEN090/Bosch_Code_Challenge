@@ -17,8 +17,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langgraph.types import interrupt
 
-from me_assistant.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from me_assistant.config import OLLAMA_BASE_URL, OLLAMA_MODEL, ROUTING_STRATEGY
 from me_assistant.agent.router import route_query
+from me_assistant.agent.llm_router import llm_route_query
 from me_assistant.agent.prompts import format_prompt
 from me_assistant.retrieval.retriever import (
     retrieve_by_series,
@@ -32,12 +33,19 @@ logger = logging.getLogger(__name__)
 def classify_node(state: dict) -> dict:
     """Route the user's question to the appropriate retrieval strategy."""
     question = state["question"]
-    result = route_query(question)
 
-    logger.info(
-        "Route: %s | models: %s | reason: %s",
-        result.route, result.matched_models, result.reason,
-    )
+    if ROUTING_STRATEGY == "llm":
+        result, route_latency_ms = llm_route_query(question)
+        logger.info(
+            "Route (LLM): %s | models: %s | reason: %s | %.0fms",
+            result.route, result.matched_models, result.reason, route_latency_ms,
+        )
+    else:
+        result = route_query(question)
+        logger.info(
+            "Route: %s | models: %s | reason: %s",
+            result.route, result.matched_models, result.reason,
+        )
 
     return {
         "route": result.route,

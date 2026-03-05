@@ -21,6 +21,7 @@ DOC_METADATA = {
 LLM_PROVIDER = "ollama"  # "ollama" | "openai"
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+ROUTING_STRATEGY = os.environ.get("ROUTING_STRATEGY", "regex")  # "regex" | "llm"
 
 # Embedding configuration
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"

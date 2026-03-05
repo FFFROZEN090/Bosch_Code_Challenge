@@ -281,39 +281,80 @@ curl -X POST http://localhost/api/invocations \
 
 ## Evaluation Results
 
-10 test questions covering single-source lookup, cross-series comparison, feature availability, and configuration queries. Evaluated with **two complementary methods**:
+10 test questions covering single-source lookup, cross-series comparison, feature availability, and configuration queries. Each question is run **3 times** and results are averaged for statistical reliability. Evaluated with **two complementary methods**:
 
-- **Keyword matching** — deterministic, requires exact technical values (e.g., "+85°C", "LPDDR4")
-- **LLM-as-Judge** — uses `Evaluation_Criteria` from the test CSV as a grading rubric, scores 1-5
+- **Keyword matching** — deterministic, requires exact technical values (e.g., "+85°C", "LPDDR4"). Uses majority vote across 3 runs.
+- **LLM-as-Judge** — criteria-driven semantic scoring (1-5), details below
 
-| Q# | Category | Route | Keyword | Judge |
-|----|----------|-------|---------|-------|
-| 1 | Single Source - ECU-700 | ECU_700 | FAIL | 5/5 |
-| 2 | Single Source - ECU-800 | ECU_800 | PASS | 5/5 |
-| 3 | Single Source - ECU-800 Enhanced | ECU_800 | PASS | 5/5 |
-| 4 | Comparative - Same Series | COMPARE | PASS | 5/5 |
-| 5 | Comparative - Cross Series | COMPARE | PASS | 4/5 |
-| 6 | Technical Specification | ECU_800 | FAIL | 5/5 |
-| 7 | Feature Availability | COMPARE | PASS | 5/5 |
-| 8 | Storage Comparison | COMPARE | PASS | 5/5 |
-| 9 | Operating Environment | COMPARE | FAIL | 4/5 |
-| 10 | Configuration/Usage | ECU_800 | PASS | 5/5 |
+#### LLM-as-Judge: Criteria-Driven Evaluation
+
+The LLM Judge uses the **same Qwen2.5 7B model** to score each answer against per-question evaluation criteria from `test-questions.csv`. The scoring pipeline:
+
+1. **Criteria injection** — each question's `Evaluation_Criteria` column (e.g., "Cross-document retrieval; Accurate technical comparison; Performance analysis") is passed directly into the judge prompt
+2. **Reference comparison** — the judge sees the question, reference answer (`Expected_Answer`), actual model output, and the criteria
+3. **Structured scoring** — the judge outputs `Score: N` (1-5) and `Reason: ...` in a fixed format, parsed via regex
+
+```
+Prompt template (eval/metrics.py):
+┌─────────────────────────────────────────────────────┐
+│ Question: {question}                                │
+│ Reference Answer: {expected_answer}                 │
+│ Evaluation Criteria: {criteria}   ← per-question    │
+│ Actual Answer: {actual_answer}                      │
+│                                                     │
+│ Score: <1-5>                                        │
+│ Reason: <one sentence explanation>                  │
+└─────────────────────────────────────────────────────┘
+```
+
+| Score | Meaning |
+|-------|---------|
+| 5 | Perfect: accurate, complete, well-structured |
+| 4 | Good: mostly accurate, minor omissions |
+| 3 | Acceptable: partially correct but missing key details |
+| 2 | Poor: significant errors or omissions |
+| 1 | Wrong: incorrect or irrelevant |
+
+Example criteria by question type:
+
+| Q# | Category | Evaluation Criteria |
+|----|----------|-------------------|
+| Q1 | Single Source | Accuracy of temperature specification; Source identification |
+| Q4 | Comparative | Accurate comparison; Synthesis of multiple specifications; Clear differentiation |
+| Q5 | Cross Series | Cross-document retrieval; Accurate technical comparison; Performance analysis |
+| Q10 | Configuration | Exact command syntax; Configuration procedure knowledge |
+
+| Q# | Category | Route | Pass Rate | Judge |
+|----|----------|-------|-----------|-------|
+| 1 | Single Source - ECU-700 | ECU_700 | 0/3 | 4/5 |
+| 2 | Single Source - ECU-800 | ECU_800 | 3/3 | 4/5 |
+| 3 | Single Source - ECU-800 Enhanced | ECU_800 | 3/3 | 4/5 |
+| 4 | Comparative - Same Series | COMPARE | 3/3 | 4/5 |
+| 5 | Comparative - Cross Series | COMPARE | 3/3 | 4/5 |
+| 6 | Technical Specification | ECU_800 | 0/3 | 4/5 |
+| 7 | Feature Availability | COMPARE | 3/3 | 4/5 |
+| 8 | Storage Comparison | COMPARE | 3/3 | 5/5 |
+| 9 | Operating Environment | COMPARE | 3/3 | 4/5 |
+| 10 | Configuration/Usage | ECU_800 | 3/3 | 5/5 |
 
 | Metric | Score |
 |--------|-------|
-| Keyword accuracy | 7/10 |
-| LLM Judge (avg) | 4.8/5 |
-| Routing accuracy | 10/10 |
-| Source accuracy | 10/10 |
-| Avg latency | ~12s (GPU) |
+| Keyword accuracy (majority vote) | 8/10 (80%) |
+| Pass rate (all 30 runs) | 24/30 (80%) |
+| LLM Judge (avg) | 4.2/5 |
+| Routing accuracy | 10/10 (100%) |
+| Route consistency (3 runs) | 10/10 (100%) |
+| Source accuracy | 10/10 (100%) |
+| Avg latency | 19.6s (GPU) |
+| P95 latency | 53.8s |
 | Pylint score | 9.95/10 |
-| Unit tests | 31/31 passed |
+| Unit tests | 33/33 passed |
 
-**Why the two metrics diverge:** Q1 and Q6 produce factually correct answers but use slightly different formatting (e.g., "85 degrees Celsius" instead of "+85°C"), causing keyword FAIL but judge 5/5. The dual evaluation avoids both false negatives (keyword-only) and false positives (judge-only).
+**Why the two metrics diverge:** Q1 and Q6 produce factually correct answers but use slightly different formatting (e.g., "85 degrees Celsius" instead of "+85°C"), causing keyword FAIL but judge 4/5. Route consistency at 100% confirms deterministic regex routing produces identical classifications across all runs. The dual evaluation avoids both false negatives (keyword-only) and false positives (judge-only).
 
 ### Routing Strategy Benchmark
 
-To validate the rule-based routing decision, we benchmarked regex routing against LLM routing (Mistral 7B classification) on 15 questions (10 standard + 5 edge cases), each run 3 times:
+To validate the rule-based routing decision, we benchmarked regex routing against LLM routing (Qwen2.5 7B classification) on 15 questions (10 standard + 5 edge cases), each run 3 times:
 
 | Metric | Regex Router | LLM Router |
 |--------|-------------|------------|
@@ -393,12 +434,13 @@ Both methods are integrated into `mlflow.evaluate()` as custom metrics (`answer_
 
 | Dimension | Method | Result | Notes |
 |-----------|--------|--------|-------|
-| Answer accuracy (keyword) | Exact keyword matching | 7/10 (70%) | Q1, Q6, Q9 fail on format differences, not factual errors |
-| Answer accuracy (judge) | LLM-as-Judge (1-5) | 4.8/5 avg | 8 questions score 5/5; Q5 and Q9 score 4/5 (minor omissions) |
+| Answer accuracy (keyword) | Exact keyword matching, majority vote over 3 runs | 8/10 (80%) | Q1, Q6 fail on format differences, not factual errors |
+| Answer accuracy (judge) | LLM-as-Judge (1-5) | 4.2/5 avg | 8 questions score 4/5; Q8, Q10 score 5/5 |
 | Routing correctness | Route vs expected | 10/10 (100%) | All questions routed to correct product line (ECU_700, ECU_800, COMPARE) |
+| Route consistency | Same route across 3 runs | 10/10 (100%) | Deterministic regex routing ensures identical classification every run |
 | Source correctness | Source docs vs expected | 10/10 (100%) | All answers cite the correct source documents |
 
-The gap between keyword (70%) and judge (96%) accuracy confirms the dual evaluation design: keyword matching catches missing facts while LLM judge avoids false negatives from formatting differences.
+The gap between keyword (80%) and judge (84%) accuracy confirms the dual evaluation design: keyword matching catches missing facts while LLM judge avoids false negatives from formatting differences.
 
 **Extending the benchmark**: To add new test questions, define the question, required keywords, expected route, expected sources, and evaluation criteria in `test-questions.csv` and `eval/metrics.py`. No model retraining needed.
 
@@ -408,12 +450,14 @@ Every evaluation run is tracked in **MLflow** (`me-assistant-evaluation` experim
 
 | Metric | Description | Baseline Value |
 |--------|-------------|----------------|
-| `overall_accuracy` | Fraction of questions where all required keywords are present | 0.70 (7/10) |
+| `overall_accuracy` | Fraction of questions where all required keywords are present (majority vote) | 0.80 (8/10) |
 | `overall_routing_accuracy` | Fraction of questions routed to the correct retrieval path | 1.00 (10/10) |
 | `overall_source_accuracy` | Fraction of questions citing the correct source documents | 1.00 (10/10) |
-| `overall_avg_judge_score` | LLM-as-Judge average score (1-5 scale) | 4.8 |
-| `overall_avg_latency_ms` | Mean response time across all questions | ~10,300 ms |
-| `overall_p95_latency_ms` | 95th percentile response time | ~15,800 ms |
+| `overall_avg_judge_score` | LLM-as-Judge average score (1-5 scale) | 4.2 |
+| `overall_avg_latency_ms` | Mean response time across all questions | ~19,600 ms |
+| `overall_p95_latency_ms` | 95th percentile response time | ~53,800 ms |
+| `overall_route_consistency` | Fraction of questions with identical route across all runs | 1.00 (10/10) |
+| `all_runs_pass_rate` | Keyword pass rate across all individual runs | 0.80 (24/30) |
 
 Each run also logs two **artifacts** for full traceability:
 
