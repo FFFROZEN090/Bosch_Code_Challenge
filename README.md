@@ -9,15 +9,15 @@ User Question
      │
      ▼
 ┌──────────┐
-│ Classify │  Rule-based router: detect models, series, compare triggers
-└────┬─────┘
+│ Classify │  Rule-based router: returns route + matched_models
+└────┬─────┘  e.g. route=ECU_800, matched_models=["ECU-850b"]
      │
      ├── ECU_700 ──┐
      ├── ECU_800 ──┤
      │             ▼
-     │    ┌─────────────────┐
-     │    │ Retrieve Single │  FAISS similarity search + metadata filter
-     │    └────────┬────────┘
+     │    ┌─────────────────┐  matched_models set?
+     │    │ Retrieve Single │  ├─ yes → filter by model  (metadata.model == "ECU-850b")
+     │    └────────┬────────┘  └─ no  → filter by series (metadata.series == "800")
      │             │
      ├── COMPARE ──┤
      ├── UNKNOWN ──┤
